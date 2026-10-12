@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1920px; height:1080px; background:transparent; overflow:hidden;
+    font-family:"Segoe UI",Verdana,Arial,sans-serif; }
+  #bar {
+    position:absolute; left:0; right:0; bottom:0; height:128px;
+    display:flex; align-items:stretch;
+    background:linear-gradient(90deg,#04120d 0%,#0a2e22 45%,#04120d 100%);
+    border-top:4px solid #c9a227;
+    box-shadow:0 -6px 30px rgba(0,0,0,.55);
+  }
+  #brand {
+    width:340px; flex:0 0 340px;
+    background:linear-gradient(135deg,#0a2e22,#04120d);
+    border-right:2px solid #c9a227;
+    display:flex; align-items:center; gap:14px; padding:0 22px;
+  }
+  #brand svg { flex:0 0 54px; }
+  #brand .name { color:#f5f0dd; font-weight:800; font-size:24px; line-height:1.15;
+    letter-spacing:1px; }
+  #brand .name small { display:block; color:#c9a227; font-size:15px;
+    letter-spacing:4px; font-weight:600; }
+  #live { display:flex; align-items:center; gap:8px; margin-top:6px;
+    color:#ff5a5a; font-size:14px; font-weight:700; letter-spacing:2px; }
+  #live .dot { width:11px; height:11px; border-radius:50%; background:#ff3b3b;
+    animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+  #main { flex:1; display:flex; align-items:center; gap:20px; padding:0 34px;
+    overflow:hidden; position:relative; }
+  #chip {
+    flex:0 0 auto; background:#c9a227; color:#08130e;
+    font-weight:800; font-size:19px; letter-spacing:2px;
+    padding:10px 18px; border-radius:4px; white-space:nowrap;
+  }
+  #headline { color:#ffffff; font-size:32px; font-weight:600; line-height:1.25;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    direction:ltr; text-align:left; }
+  #headline bdi { unicode-bidi:isolate; }
+  #headline .gold { color:#e8c84a; font-weight:700; }
+  #headline .dim { color:#b9c6bd; font-weight:400; font-size:28px; }
+  .slide { position:absolute; inset:0; display:flex; align-items:center; gap:20px;
+    padding:0 34px; opacity:0; transform:translateY(26px);
+    transition:opacity .55s ease, transform .55s ease; pointer-events:none; }
+  .slide.active { opacity:1; transform:translateY(0); }
+  #right {
+    width:340px; flex:0 0 340px; border-left:2px solid #c9a227;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px; padding:0 12px;
+  }
+  #ptime { color:#e8c84a; font-size:30px; font-weight:800; letter-spacing:1px; }
+  #prayer { color:#ffffff; font-size:22px; font-weight:700; }
+  #countdown { color:#b9c6bd; font-size:19px; font-weight:600; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <div id="brand">
+    <svg width="54" height="54" viewBox="0 0 64 64">
+      <path d="M42 36.6A16 16 0 1 1 27.4 12 20 20 0 1 0 42 36.6Z" fill="#c9a227"/>
+      <circle cx="44" cy="18" r="4" fill="#e8c84a"/>
+    </svg>
+    <div>
+      <div class="name">MIFTAH<small>LEARNING CORNER</small></div>
+      <div id="live"><span class="dot"></span>LIVE</div>
+    </div>
+  </div>
+  <div id="main"></div>
+  <div id="right">
+    <div id="ptime">--:--</div>
+    <div id="prayer">&nbsp;</div>
+    <div id="countdown">&nbsp;</div>
+  </div>
+</div>
+<script>
+const main = document.getElementById('main');
+let orgs = [], current = null, slideIdx = 0, slides = [];
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function buildSlides(){
+  slides = [];
+  if (current){
+    const t = current.track;
+    slides.push({label:'NOW PLAYING',
+      html:`<span class="gold">&#9834;</span> <bdi>${esc(t.title)}</bdi> <span class="dim">&mdash; <bdi>${esc(t.sub||'')}</bdi></span>`});
+  }
+  for (const o of orgs){
+    slides.push({label:o.label,
+      html:`<span class="gold"><bdi>${esc(o.title)}</bdi></span> <span class="dim"><bdi>${esc(o.detail)}</bdi></span>`});
+  }
+  render();
+}
+
+function render(){
+  main.innerHTML = '';
+  slides.forEach((s,i)=>{
+    const div = document.createElement('div');
+    div.className = 'slide' + (i===slideIdx % slides.length ? ' active' : '');
+    div.innerHTML = `<div id="chip">${esc(s.label)}</div><div id="headline">${s.html}</div>`;
+    main.appendChild(div);
+  });
+}
+
+async function poll(){
+  try{
+    const r = await fetch('/api/now', {cache:'no-store'});
+    const d = await r.json();
+    if (!current || d.index !== current.index){
+      current = d;
+      buildSlides(); // slide order is stable; slideIdx carries over
+    }
+  }catch(e){}
+}
+async function loadOrgs(){
+  try{ orgs = await (await fetch('/api/orgs',{cache:'no-store'})).json(); }
+  catch(e){ orgs = []; }
+  buildSlides();
+}
+setInterval(()=>{
+  if (!slides.length) return;
+  slideIdx = (slideIdx + 1) % slides.length;
+  render();
+}, 8000);
+setInterval(poll, 3000);
+loadOrgs(); poll();
+
+// ---- Prayer times (Philadelphia, ISNA method; fetched server-side) ----
+const DAY_MARKS = ['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha'];
+const FARD = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+let prayerTimes = null;
+async function loadPrayers(){
+  try{
+    const marks = await (await fetch('/api/prayers',{cache:'no-store'})).json();
+    prayerTimes = marks.map(m=>({name:m.name, at:new Date(m.at)}));
+    if (!prayerTimes.length) prayerTimes = null;
+  }catch(e){ prayerTimes = null; }
+}
+function tickPrayer(){
+  const now = new Date();
+  let h = now.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  const abbr = now.toLocaleTimeString('en-US',{timeZoneName:'short'}).split(' ').pop();
+  document.getElementById('ptime').textContent =
+    `${h}:${String(now.getMinutes()).padStart(2,'0')} ${ap} ${abbr}`;
+  const pel = document.getElementById('prayer'), cel = document.getElementById('countdown');
+  if (!prayerTimes){ pel.innerHTML='&nbsp;'; cel.innerHTML='&nbsp;'; return; }
+  let cur = null, next = null;
+  for (const p of prayerTimes){
+    if (p.at <= now){ if (FARD.includes(p.name)) cur = p; }
+    else if (!next){ next = p; }
+  }
+  if (!next){
+    const t = new Date(prayerTimes[0].at); t.setDate(t.getDate()+1);
+    next = {name:'Fajr', at:t}; cur = prayerTimes[prayerTimes.length-1];
+  }
+  if (!cur) cur = {name:'Isha'};
+  pel.textContent = cur.name;
+  const ms = Math.max(0, next.at - now);
+  const hh = Math.floor(ms/3600000), mm = Math.floor(ms%3600000/60000), ss = Math.floor(ms%60000/1000);
+  cel.textContent = `${next.name} in ${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+setInterval(tickPrayer, 1000);
+setInterval(loadPrayers, 6*3600*1000);
+loadPrayers(); tickPrayer();
+</script>
+</body>
+</html>

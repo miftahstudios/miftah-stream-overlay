@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Miftah Overlay Control</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#04120d;color:#f5f0dd;font-family:"Segoe UI",Verdana,Arial,sans-serif;
+    max-width:720px;margin:0 auto;padding:20px;}
+  h1{color:#c9a227;font-size:22px;letter-spacing:2px;margin-bottom:4px}
+  p.sub{color:#b9c6bd;margin-bottom:18px;font-size:14px}
+  #now{background:#0a2e22;border:1px solid #c9a227;border-radius:10px;padding:18px;margin-bottom:16px}
+  #now .idx{color:#c9a227;font-size:13px;letter-spacing:2px;margin-bottom:6px}
+  #now .title{font-size:22px;font-weight:700;unicode-bidi:plaintext}
+  #now .kind{color:#b9c6bd;margin-top:4px}
+  .row{display:flex;gap:10px;margin-bottom:16px}
+  button{flex:1;background:#c9a227;color:#08130e;border:none;border-radius:8px;
+    padding:14px;font-size:17px;font-weight:800;cursor:pointer}
+  button:active{transform:scale(.97)}
+  button.ghost{background:transparent;color:#c9a227;border:2px solid #c9a227}
+  input{width:100%;background:#0a2e22;border:1px solid #2a5a4a;color:#f5f0dd;
+    border-radius:8px;padding:13px;font-size:16px;margin-bottom:10px}
+  #results{max-height:50vh;overflow-y:auto}
+  .hit{background:#0a2e22;border:1px solid #1d4436;border-radius:8px;padding:11px 13px;
+    margin-bottom:8px;cursor:pointer}
+  .hit:hover{border-color:#c9a227}
+  .hit .t{font-weight:600;unicode-bidi:plaintext}
+  .hit .k{color:#b9c6bd;font-size:13px;margin-top:2px}
+  .hit.cur{border-color:#c9a227;background:#123a2c}
+</style>
+</head>
+<body>
+<h1>MIFTAH OVERLAY CONTROL</h1>
+<p class="sub">Tap Prev / Next as the nasheed changes, or search to jump.</p>
+<div id="now"><div class="idx" id="idx"></div><div class="title" id="title"></div><div class="kind" id="kind"></div></div>
+<div class="row">
+  <button id="prev">&#9664; Prev</button>
+  <button id="next">Next &#9654;</button>
+</div>
+<input id="q" type="search" placeholder="Search 966 tracks…" autocomplete="off">
+<div id="results"></div>
+<script>
+let tracks=[], cur=0;
+const $=id=>document.getElementById(id);
+async function refresh(){
+  const d=await (await fetch('/api/now')).json();
+  cur=d.index; const t=d.track;
+  $('idx').textContent=`TRACK ${d.index+1} OF ${d.total}`;
+  $('title').textContent=t.title;
+  $('kind').textContent=(t.sub?t.sub+' · ':'')+t.kind;
+  document.querySelectorAll('.hit').forEach(el=>
+    el.classList.toggle('cur', +el.dataset.i===cur));
+}
+async function post(p,body){
+  await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:body?JSON.stringify(body):undefined});
+  refresh();
+}
+$('prev').onclick=()=>post('/api/prev');
+$('next').onclick=()=>post('/api/next');
+document.addEventListener('keydown',e=>{
+  if(document.activeElement===$('q'))return;
+  if(e.key==='ArrowRight')post('/api/next');
+  if(e.key==='ArrowLeft')post('/api/prev');
+});
+$('q').addEventListener('input',e=>{
+  const q=e.target.value.trim().toLowerCase(), box=$('results');
+  box.innerHTML='';
+  if(q.length<2)return;
+  tracks.map((t,i)=>({t,i})).filter(({t})=>
+    (t.title+' '+(t.sub||'')).toLowerCase().includes(q))
+    .slice(0,40).forEach(({t,i})=>{
+      const d=document.createElement('div');
+      d.className='hit'+(i===cur?' cur':''); d.dataset.i=i;
+      d.innerHTML=`<div class="t"></div><div class="k">${i+1} · ${t.kind}${t.sub?' · '+t.sub:''}</div>`;
+      d.querySelector('.t').textContent=t.title;
+      d.onclick=()=>post('/api/set',{index:i});
+      box.appendChild(d);
+    });
+});
+fetch('/api/tracks').then(r=>r.json()).then(t=>tracks=t);
+refresh(); setInterval(refresh,5000);
+</script>
+</body>
+</html>

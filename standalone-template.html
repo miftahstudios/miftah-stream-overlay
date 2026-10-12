@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1920px; height:1080px; background:transparent; overflow:hidden;
+    font-family:"Segoe UI",Verdana,Arial,sans-serif; }
+  #ytwrap { position:absolute; top:0; left:0; width:1920px; height:1080px; }
+  /* Hover-reveal controls (visible in OBS Interact window, invisible on stream) */
+  #ctl { position:absolute; top:0; left:0; right:0; display:flex; gap:12px;
+    align-items:center; justify-content:center; padding:12px;
+    background:rgba(0,0,0,.72); opacity:0; transition:opacity .3s; z-index:10; }
+  #ctl:hover { opacity:1; }
+  #ctl button { background:#c9a227; color:#08130e; border:none; border-radius:8px;
+    padding:10px 22px; font-size:18px; font-weight:800; cursor:pointer; }
+  #ctl span { color:#b9c6bd; font-size:14px; }
+  #bar {
+    position:absolute; left:0; right:0; bottom:0; height:128px; z-index:5;
+    display:flex; align-items:stretch;
+    background:linear-gradient(90deg,#04120d 0%,#0a2e22 45%,#04120d 100%);
+    border-top:4px solid #c9a227;
+    box-shadow:0 -6px 30px rgba(0,0,0,.55);
+  }
+  #brand {
+    width:340px; flex:0 0 340px;
+    background:linear-gradient(135deg,#0a2e22,#04120d);
+    border-right:2px solid #c9a227;
+    display:flex; align-items:center; gap:14px; padding:0 22px;
+  }
+  #brand svg { flex:0 0 54px; }
+  #brand .name { color:#f5f0dd; font-weight:800; font-size:24px; line-height:1.15;
+    letter-spacing:1px; }
+  #brand .name small { display:block; color:#c9a227; font-size:15px;
+    letter-spacing:4px; font-weight:600; }
+  #live { display:flex; align-items:center; gap:8px; margin-top:6px;
+    color:#ff5a5a; font-size:14px; font-weight:700; letter-spacing:2px; }
+  #live .dot { width:11px; height:11px; border-radius:50%; background:#ff3b3b;
+    animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+  #main { flex:1; display:flex; align-items:center; gap:20px; padding:0 34px;
+    overflow:hidden; position:relative; }
+  .chip {
+    flex:0 0 auto; background:#c9a227; color:#08130e;
+    font-weight:800; font-size:19px; letter-spacing:2px;
+    padding:10px 18px; border-radius:4px; white-space:nowrap;
+  }
+  .headline { color:#ffffff; font-size:32px; font-weight:600; line-height:1.25;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    direction:ltr; text-align:left; }
+  .headline bdi { unicode-bidi:isolate; }
+  .headline .gold { color:#e8c84a; font-weight:700; }
+  .headline .dim { color:#b9c6bd; font-weight:400; font-size:28px; }
+  .slide { position:absolute; inset:0; display:flex; align-items:center; gap:20px;
+    padding:0 34px; opacity:0; transform:translateY(26px);
+    transition:opacity .55s ease, transform .55s ease; pointer-events:none; }
+  .slide.active { opacity:1; transform:translateY(0); }
+  #right {
+    width:340px; flex:0 0 340px; border-left:2px solid #c9a227;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px; padding:0 12px;
+  }
+  #ptime { color:#e8c84a; font-size:30px; font-weight:800; letter-spacing:1px; }
+  #prayer { color:#ffffff; font-size:22px; font-weight:700; }
+  #countdown { color:#b9c6bd; font-size:19px; font-weight:600; }
+</style>
+</head>
+<body>
+<div id="ytwrap"><div id="ytplayer"></div></div>
+<div id="ctl">
+  <button id="bPrev">&#9198; Prev</button>
+  <button id="bPlay">&#9654; Play</button>
+  <button id="bNext">Next &#9197;</button>
+  <span id="ctlStatus">Loading player…</span>
+</div>
+<div id="bar">
+  <div id="brand">
+    <svg width="54" height="54" viewBox="0 0 64 64">
+      <path d="M42 36.6A16 16 0 1 1 27.4 12 20 20 0 1 0 42 36.6Z" fill="#c9a227"/>
+      <circle cx="44" cy="18" r="4" fill="#e8c84a"/>
+    </svg>
+    <div>
+      <div class="name">MIFTAH<small>LEARNING CORNER</small></div>
+      <div id="live"><span class="dot"></span>LIVE</div>
+    </div>
+  </div>
+  <div id="main"></div>
+  <div id="right">
+    <div id="ptime">--:--</div>
+    <div id="prayer">&nbsp;</div>
+    <div id="countdown">&nbsp;</div>
+  </div>
+</div>
+<script>
+const TRACKS = /*__TRACKS__*/;
+const ORGS = /*__ORGS__*/;
+const PLAYLIST_ID = 'PLTepdigcSlFw';
+const P_LAT = 39.9555, P_LON = -75.2115; // Philadelphia
+
+const main = document.getElementById('main');
+let player = null, slideIdx = 0, slides = [];
+let nowTrack = {title:'Press play to start', sub:'AICP Playlist', kind:''};
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function buildSlides(){
+  slides = [{label:'NOW PLAYING',
+    html:`<span class="gold">&#9834;</span> <bdi>${esc(nowTrack.title)}</bdi> <span class="dim">&mdash; <bdi>${esc(nowTrack.sub||'')}</bdi></span>`}];
+  for (const o of ORGS){
+    slides.push({label:o.label,
+      html:`<span class="gold"><bdi>${esc(o.title)}</bdi></span> <span class="dim"><bdi>${esc(o.detail)}</bdi></span>`});
+  }
+  render();
+}
+function render(){
+  main.innerHTML = '';
+  slides.forEach((s,i)=>{
+    const div = document.createElement('div');
+    div.className = 'slide' + (i===slideIdx % slides.length ? ' active' : '');
+    div.innerHTML = `<div class="chip">${esc(s.label)}</div><div class="headline">${s.html}</div>`;
+    main.appendChild(div);
+  });
+}
+function setNowPlaying(idx, fallbackTitle, fallbackSub){
+  if (idx >= 0 && idx < TRACKS.length){
+    const t = TRACKS[idx];
+    nowTrack = {title:t.title, sub:t.sub||t.kind||'', kind:t.kind};
+  } else {
+    nowTrack = {title:fallbackTitle||'—', sub:fallbackSub||'', kind:''};
+  }
+  buildSlides();
+}
+setInterval(()=>{ if (slides.length){ slideIdx = (slideIdx+1)%slides.length; render(); } }, 8000);
+
+/* ---------- YouTube player (auto-follows the playlist) ---------- */
+const ctlStatus = document.getElementById('ctlStatus');
+function onYouTubeIframeAPIReady(){
+  player = new YT.Player('ytplayer', {
+    width:'1920', height:'1080',
+    playerVars:{ listType:'playlist', list:PLAYLIST_ID, rel:0 },
+    events:{ onReady:onPReady, onStateChange:onPState, onError:onPError }
+  });
+}
+function onPReady(){
+  ctlStatus.textContent = 'Ready — press Play above, then close this panel.';
+  document.getElementById('bPlay').innerHTML = '&#9654; Play';
+}
+function onPState(e){
+  if (!player) return;
+  if (e.data === YT.PlayerState.PLAYING){
+    document.getElementById('bPlay').innerHTML = '&#10074;&#10074; Pause';
+    syncFromPlayer();
+  } else if (e.data === YT.PlayerState.PAUSED){
+    document.getElementById('bPlay').innerHTML = '&#9654; Play';
+  }
+}
+function onPError(e){
+  if ((e.data===101||e.data===150) && player){
+    ctlStatus.textContent = 'Skipped a video that can\u2019t be embedded…';
+    try{ player.nextVideo(); }catch(_){}
+  }
+}
+function syncFromPlayer(){
+  try{
+    const i = player.getPlaylistIndex();
+    const vd = player.getVideoData()||{};
+    setNowPlaying(i, vd.title, vd.author);
+    if (i>=0) ctlStatus.textContent = `Playing track #${i+1} of ${TRACKS.length}`;
+  }catch(_){}
+}
+setInterval(()=>{ // re-sync in case a change was missed
+  try{
+    if (player && player.getPlayerState && player.getPlayerState()===YT.PlayerState.PLAYING) syncFromPlayer();
+  }catch(_){}
+}, 5000);
+setTimeout(()=>{
+  if (!player) ctlStatus.textContent = 'Player didn\u2019t load — check internet, then reopen this panel.';
+}, 15000);
+
+document.getElementById('bPrev').onclick = ()=>{ try{player.previousVideo();}catch(_){} };
+document.getElementById('bNext').onclick = ()=>{ try{player.nextVideo();}catch(_){} };
+document.getElementById('bPlay').onclick = ()=>{
+  try{
+    if (player.getPlayerState()===YT.PlayerState.PLAYING) player.pauseVideo();
+    else player.playVideo();
+  }catch(_){}
+};
+
+/* ---------- Prayer times (Philadelphia, ISNA) ---------- */
+const DAY_MARKS = ['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha'];
+const FARD = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+let prayerTimes = null;
+async function loadPrayers(){
+  try{
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2,'0');
+    const mm = String(now.getMonth()+1).padStart(2,'0');
+    const r = await fetch(`https://api.aladhan.com/v1/timings/${dd}-${mm}-${now.getFullYear()}?latitude=${P_LAT}&longitude=${P_LON}&method=2`);
+    const d = await r.json();
+    prayerTimes = DAY_MARKS.map(n=>{
+      const parts = d.data.timings[n].split(' ')[0].split(':');
+      const at = new Date(now); at.setHours(+parts[0], +parts[1], 0, 0);
+      return {name:n, at};
+    });
+  }catch(e){ prayerTimes = null; }
+}
+function tickPrayer(){
+  const now = new Date();
+  let h = now.getHours(); const ap = h>=12?'PM':'AM'; h = h%12||12;
+  const abbr = now.toLocaleTimeString('en-US',{timeZoneName:'short'}).split(' ').pop();
+  document.getElementById('ptime').textContent =
+    `${h}:${String(now.getMinutes()).padStart(2,'0')} ${ap} ${abbr}`;
+  const pel = document.getElementById('prayer'), cel = document.getElementById('countdown');
+  if (!prayerTimes){ pel.innerHTML='&nbsp;'; cel.innerHTML='&nbsp;'; return; }
+  let cur = null, next = null;
+  for (const p of prayerTimes){
+    if (p.at <= now){ if (FARD.includes(p.name)) cur = p; }
+    else if (!next){ next = p; }
+  }
+  if (!next){
+    const t = new Date(prayerTimes[0].at); t.setDate(t.getDate()+1);
+    next = {name:'Fajr', at:t}; cur = prayerTimes[prayerTimes.length-1];
+  }
+  if (!cur) cur = {name:'Isha'};
+  pel.textContent = cur.name;
+  const ms = Math.max(0, next.at - now);
+  const hh = Math.floor(ms/3600000), mm2 = Math.floor(ms%3600000/60000), ss = Math.floor(ms%60000/1000);
+  cel.textContent = `${next.name} in ${hh}:${String(mm2).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+setInterval(tickPrayer, 1000);
+setInterval(loadPrayers, 6*3600*1000);
+
+buildSlides();
+loadPrayers(); tickPrayer();
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AICP Playlist Player</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#04120d;color:#f5f0dd;font-family:"Segoe UI",Verdana,Arial,sans-serif;
+    max-width:960px;margin:0 auto;padding:24px 20px;text-align:center}
+  h1{color:#c9a227;font-size:22px;letter-spacing:2px;margin-bottom:6px}
+  p.sub{color:#b9c6bd;margin-bottom:18px;font-size:15px}
+  #player{margin:0 auto;max-width:854px}
+  #player iframe{width:100%;aspect-ratio:16/9}
+  #status{margin-top:16px;background:#0a2e22;border:1px solid #c9a227;border-radius:10px;
+    padding:14px 18px;font-size:16px;min-height:54px}
+  #status .gold{color:#e8c84a;font-weight:700}
+  .hint{margin-top:14px;color:#b9c6bd;font-size:13px}
+</style>
+</head>
+<body>
+<h1>AICP PLAYLIST PLAYER</h1>
+<p class="sub">Press play below — the stream overlay follows automatically.</p>
+<div id="player"></div>
+<div id="status">Loading YouTube player…</div>
+<p class="hint">Plays your AICP YouTube playlist in order. If a video can't be embedded,
+it's skipped automatically. You can still use the tap controller anytime —
+whichever updates last wins.</p>
+<script>
+const PLAYLIST_ID = 'PLTepdigcSlFw';
+let player = null, lastIndex = -2;
+const statusEl = document.getElementById('status');
+function status(html){ statusEl.innerHTML = html; }
+function onYouTubeIframeAPIReady(){
+  player = new YT.Player('player', {
+    width: '854', height: '480',
+    playerVars: { listType: 'playlist', list: PLAYLIST_ID, rel: 0 },
+    events: { onReady: onReady, onStateChange: onState, onError: onErr }
+  });
+}
+function onReady(){
+  status('Ready — press play. The overlay will follow each video.');
+}
+function onState(e){
+  if (e.data === YT.PlayerState.PLAYING){
+    report(player.getPlaylistIndex(), player.getVideoData());
+  }
+}
+function onErr(e){
+  // 101 / 150 = embedding disabled by the uploader → skip it
+  if ((e.data === 101 || e.data === 150) && player){
+    status('Skipped a video that can\u2019t be embedded…');
+    try{ player.nextVideo(); }catch(_){}
+  }
+}
+async function report(i, vd){
+  lastIndex = i;
+  try{
+    await fetch('/api/auto', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index:i, video_id:vd.video_id||'', title:vd.title||''})});
+  }catch(_){}
+  const title = vd.title || 'Unknown video';
+  if (i >= 0) status(`<span class="gold">Overlay following</span> — track #${i+1}: ${escapeHtml(title)}`);
+  else status(`Playing: ${escapeHtml(title)} <span class="gold">(not in playlist order)</span>`);
+}
+function escapeHtml(s){
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+// Re-sync every 5s in case a change was missed (e.g. clicking around the playlist)
+setInterval(()=>{
+  try{
+    if (player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING){
+      const i = player.getPlaylistIndex();
+      if (i !== lastIndex) report(i, player.getVideoData());
+    }
+  }catch(_){}
+}, 5000);
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
