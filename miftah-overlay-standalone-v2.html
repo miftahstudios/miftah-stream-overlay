@@ -53,14 +53,11 @@
   }
   .headline { color:#ffffff; font-size:32px; font-weight:600; line-height:1.25;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    direction:ltr; text-align:left; }
+    direction:ltr; text-align:left; flex:1; min-width:0; }
   .headline bdi { unicode-bidi:isolate; }
   .headline .gold { color:#e8c84a; font-weight:700; }
   .headline .dim { color:#b9c6bd; font-weight:400; font-size:28px; }
-  .headline .marquee { display:inline-flex; white-space:nowrap;
-    animation:marq var(--marq-dur,16s) linear infinite; will-change:transform; }
-  .headline .marquee > span { padding-right:140px; }
-  @keyframes marq { to { transform:translateX(-50%); } }
+  .headline .scroll { display:inline-block; white-space:nowrap; will-change:transform; }
   .slide { position:absolute; inset:0; display:flex; align-items:center; gap:20px;
     padding:0 34px; opacity:0; transform:translateY(26px);
     transition:opacity .55s ease, transform .55s ease; pointer-events:none; }
@@ -142,27 +139,40 @@ function render(){
   slides.forEach((s,i)=>{
     const div = document.createElement('div');
     div.className = 'slide' + (i===slideIdx % slides.length ? ' active' : '');
-    const body = (i===0) ? s.html
-      : `<span class="marquee"><span>${s.html}</span><span aria-hidden="true">${s.html}</span></span>`;
-    div.innerHTML = `<div class="chip">${esc(s.label)}</div><div class="headline">${body}</div>`;
+    div.innerHTML = `<div class="chip">${esc(s.label)}</div><div class="headline"><span class="scroll">${s.html}</span></div>`;
     main.appendChild(div);
-    const mq = div.querySelector('.marquee');
-    if (mq){
-      // Consistent reading speed (~85px/s): longer text gets more time.
-      requestAnimationFrame(()=>{
-        const w = mq.scrollWidth/2;
-        mq.style.setProperty('--marq-dur', Math.max(12, w/85).toFixed(1)+'s');
-      });
-    }
   });
 }
-function tick(){
+let slideTimer = 0;
+function showSlide(i){
   if (!slides.length) return;
   const els = main.children;
-  if (els[slideIdx % slides.length]) els[slideIdx % slides.length].classList.remove('active');
-  slideIdx = (slideIdx+1)%slides.length;
-  if (els[slideIdx % slides.length]) els[slideIdx % slides.length].classList.add('active');
+  const prev = els[slideIdx % slides.length];
+  if (prev) prev.classList.remove('active');
+  slideIdx = ((i % slides.length) + slides.length) % slides.length;
+  const el = els[slideIdx % slides.length];
+  if (!el) return;
+  el.classList.add('active');
+  // Scroll just far enough to reveal the whole text, pause at each end,
+  // then crossfade to the next slide.
+  let wait = 8000;
+  const sc = el.querySelector('.scroll');
+  if (sc){
+    sc.style.transition = 'none';
+    sc.style.transform = 'translateX(0px)';
+    void sc.offsetWidth; // force reflow so the reset takes before animating
+    const overflow = sc.scrollWidth - sc.parentElement.clientWidth;
+    if (overflow > 8){
+      const dur = Math.max(2.5, overflow / 85); // ~85px/s reading speed
+      wait = 1400 + dur * 1000 + 1400;
+      sc.style.transition = 'transform ' + dur.toFixed(2) + 's linear';
+      sc.style.transform = 'translateX(' + (-overflow) + 'px)';
+    }
+  }
+  clearTimeout(slideTimer);
+  slideTimer = setTimeout(()=>showSlide(slideIdx + 1), wait);
 }
+function tick(){ showSlide(slideIdx + 1); }
 function setNowPlaying(idx, fallbackTitle, fallbackSub){
   if (idx >= 0 && idx < TRACKS.length){
     const t = TRACKS[idx];
@@ -171,8 +181,12 @@ function setNowPlaying(idx, fallbackTitle, fallbackSub){
     nowTrack = {title:fallbackTitle||'—', sub:fallbackSub||'', kind:''};
   }
   buildSlides();
+  clearTimeout(slideTimer);
+  showSlide(slideIdx);
+  // Expose the current song in the tab title so the song-reporter can read it.
+  try{ document.title = "MIFTAH-NOW-PLAYING: " + (nowTrack.title || "—"); }catch(_){}
 }
-setInterval(tick, 8000);
+// slide timing is driven by showSlide()'s own timeout chain
 
 /* ---------- YouTube player (auto-follows the playlist) ---------- */
 const ctlStatus = document.getElementById('ctlStatus');
@@ -185,6 +199,14 @@ function onYouTubeIframeAPIReady(){
 function onPReady(){
   ctlStatus.textContent = 'Ready — press Play above, then close this panel.';
   document.getElementById('bPlay').innerHTML = '&#9654; Play';
+  // Reporter mode (?reporter=1): stay muted so a second Edge tab can feed
+  // the bot's !song without double audio.
+  try{
+    if (new URLSearchParams(location.search).get('reporter') === '1' && player && player.mute){
+      player.mute();
+      ctlStatus.textContent += ' [reporter mode: muted]';
+    }
+  }catch(_){}
   try{
     const r = player.getIframe().getBoundingClientRect();
     ctlStatus.textContent += ` [${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.x)},${Math.round(r.y)}]`;
@@ -276,6 +298,7 @@ setInterval(tickPrayer, 1000);
 setInterval(loadPrayers, 6*3600*1000);
 
 buildSlides();
+showSlide(0);
 loadPrayers(); tickPrayer();
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
